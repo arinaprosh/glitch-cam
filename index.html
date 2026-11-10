@@ -1,28 +1,48 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset=»utf-8»>
   <meta name=»viewport» content=»width=device-width, initial-scale=1.0, user-scalable=no»>
   <title>Purple Glitch Cam</title>
   <script src=»https://aframe.io»></script>
   <script src=»https://jsdelivr.net»></script>
   <style>
-    Body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-    Video { opacity: 0 !important; pointer-events: none; }
+•	{ box-sizing: border-box; margin: 0; padding: 0; }
+    Body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; }
 
-    #output-canvas {
-      Position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      Object-fit: cover; z-index: 10;
+    /* Стартовый экран с кнопкой запуска */
+    #start-screen {
+      Position: fixed; inset: 0; z-index: 100;
+      Background: #111; display: flex; flex-direction: column;
+      Align-items: center; justify-content: center; color: #fff; text-align: center; padding: 20px;
+    }
+    #start-btn {
+      Padding: 16px 32px; font-size: 18px; font-weight: bold;
+      Color: #fff; background: #8a2be2; border: none; border-radius: 12px;
+      Cursor: pointer; margin-top: 20px;
     }
 
+    /* Прячем лишние элементы A-Frame, но оставляем видео живым для захвата */
+    .a-enter-vr, .a-loader-title { display: none !important; }
+    a-scene { position: fixed; inset: 0; z-index: 1; opacity: 0.01; pointer-events: none; }
+
+    /* Наш главный экран с эффектами */
+    #output-canvas {
+      Position: fixed; inset: 0; width: 100%; height: 100%;
+      Object-fit: cover; z-index: 10; background: #000;
+    }
+
+    /* Кнопка записи */
     #record-btn {
-      Position: fixed; bottom: 35px; left: 50%; transform: translateX(-50%);
-      Width: 74px; height: 74px; border-radius: 50%;
-      Background: rgba(255, 255, 255, 0.25); border: 4px solid #fff;
-      z-index: 20; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      Position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+      Width: 76px; height: 76px; border-radius: 50%;
+      Background: rgba(255, 255, 255, 0.3); border: 4px solid #fff;
+      z-index: 50; cursor: pointer; display: none;
+      align-items: center; justify-content: center;
       -webkit-tap-highlight-color: transparent;
     }
     #record-btn::after {
-      Content: ''; width: 56px; height: 56px; border-radius: 50%;
+      Content: ''; display: block; width: 56px; height: 56px; border-radius: 50%;
       Background: #ff2a55; transition: all 0.2s ease;
     }
     #record-btn.recording::after {
@@ -32,15 +52,26 @@
 </head>
 <body>
 
+  <!—Экран запуска 
+  <div id=»start-screen»>
+    <h2>Glitch Cam</h2>
+    <p style=»color: #aaa; margin-top: 8px; font-size: 14px;»>Нажмите кнопку, чтобы дать доступ к камере</p>
+    <button id=»start-btn»>Включить камеру</button>
+  </div>
+
   <canvas id=»output-canvas»></canvas>
   <button id=»record-btn»></button>
 
-  <a-scene mindar-image=»imageTargetSrc: ./targets.mind; uiScanning: no;» vr-mode-ui=»enabled: false» device-orientation-permission-ui=»enabled: false»>
+  <!—Сцена MindAR (запускается вручную по кнопке) 
+  <a-scene id=»ar-scene» mindar-image=»imageTargetSrc: ./targets.mind; autoStart: false; uiScanning: no;» vr-mode-ui=»enabled: false» device-orientation-permission-ui=»enabled: false»>
     <a-camera position=»0 0 0» look-controls=»enabled: false»></a-camera>
     
   </a-scene>
 
   <script>
+    Const startScreen = document.getElementById('start-screen');
+    Const startBtn = document.getElementById('start-btn');
+    Const sceneEl = document.getElementById('ar-scene');
     Const canvas = document.getElementById('output-canvas');
     Const ctx = canvas.getContext('2d');
     Const recordBtn = document.getElementById('record-btn');
@@ -50,13 +81,32 @@
     Let mediaRecorder;
     Let recordedChunks = [];
     Let isRecording = false;
+    Let arStarted = false;
+
+    // Запуск по нажатию на кнопку
+    startBtn.addEventListener('click', () => {
+      startBtn.textContent = 'Загрузка…';
+      const arSystem = sceneEl.systems['mindar-image-system'];
+      arSystem.start(); // Принудительно запускаем камеру и трекинг
+      
+      setTimeout(() => {
+        startScreen.style.display = 'none';
+        recordBtn.style.display = 'flex';
+        arStarted = true;
+        renderLoop();
+      }, 1000);
+    });
 
     Target.addEventListener(«targetFound», () => { isGlitching = true; });
     Target.addEventListener(«targetLost», () => { isGlitching = false; });
 
     Function renderLoop() {
+      If (!arStarted) return;
+
+      // Ищем видеоэлемент, который создает MindAR
       Const video = document.querySelector('video');
-      If (video && video.readyState >= 2) {
+      
+      If (video && video.readyState >= 2 && video.videoWidth > 0) {
         If (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
           Canvas.width = video.videoWidth;
           Canvas.height = video.videoHeight;
@@ -67,13 +117,11 @@
 
         Ctx.save();
         If (isGlitching) {
-          // 1. Базовый фиолетовый перегруз + тряска
           Ctx.filter = 'hue-rotate(255deg) saturate(350%) contrast(160%)';
           Const shakeX = (Math.random() – 0.5) * 16;
           Const shakeY = (Math.random() – 0.5) * 16;
           Ctx.drawImage(video, shakeX – 10, shakeY – 10, w + 20, h + 20);
 
-          // 2. Сдвиг цветовых каналов (RGB-расслоение)
           Ctx.globalCompositeOperation = 'screen';
           Ctx.globalAlpha = 0.6;
           Ctx.filter = 'hue-rotate(290deg) saturate(400%)';
@@ -83,23 +131,18 @@
           Ctx.globalCompositeOperation = 'source-over';
           Ctx.filter = 'hue-rotate(255deg) saturate(350%) contrast(160%)';
 
-          // 3. Рваные VHS-полосы (сдвиг случайных горизонтальных кусков)
-          Const slices = 10; // Количество полос искажения
-          For (let i = 0; i < slices; i++) {
-            If (Math.random() > 0.3) { // Полосы мелькают хаотично
+          For (let i = 0; i < 10; i++) {
+            If (Math.random() > 0.3) {
               Const sliceY = Math.random() * h;
               Const sliceH = Math.random() * (h * 0.08) + 5;
-              Const offsetX = (Math.random() – 0.5) * 80; // Сила сдвига вбок
+              Const offsetX = (Math.random() – 0.5) * 80;
               Ctx.drawImage(canvas, 0, sliceY, w, sliceH, offsetX, sliceY, w, sliceH);
             }
           }
 
-          // 4. Фиолетовая вспышка/засвет поверх кадра
           Ctx.fillStyle = `rgba(140, 0, 255, ${Math.random() * 0.25})`;
           Ctx.fillRect(0, 0, w, h);
-
         } else {
-          // Обычная чистая камера
           Ctx.filter = 'none';
           Ctx.drawImage(video, 0, 0, w, h);
         }
@@ -107,29 +150,17 @@
       }
       requestAnimationFrame(renderLoop);
     }
-    renderLoop();
 
-    // Логика записи видео
+    // Запись видео
     recordBtn.addEventListener('click', () => {
-      if (!isRecording) {
-        startRecording();
-      } else {
-        stopRecording();
-      }
+      if (!isRecording) startRecording();
+      else stopRecording();
     });
 
     Function startRecording() {
       recordedChunks = [];
       const stream = canvas.captureStream(30);
-      
-      // Android Chrome отлично пишет в mp4 или webm
-      Let mimeType = 'video/webm;codecs=vp9';
-      If (MediaRecorder.isTypeSupported('video/mp4')) {
-        mimeType = 'video/mp4';
-      } else if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/webm';
-      }
-
+      let mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
       mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
 
       mediaRecorder.ondataavailable = € => {
@@ -162,5 +193,6 @@
   </script>
 </body>
 </html>
+
 
 
