@@ -1,0 +1,22 @@
+name: Download AR Engine
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download MindAR and Three
+        run: |
+          curl -L "https://jsdelivr.net" -o three.module.js
+          curl -L "https://jsdelivr.net" -o mindar.js
+      - name: Save to repo
+        run: |
+          git config user.name "GitHub Bot"
+          git config user.email "bot@github.com"
+          git add three.module.js mindar.js
+          git commit -m "Add local AR files"
+          git push
+          
