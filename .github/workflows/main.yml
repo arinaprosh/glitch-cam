@@ -8,10 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download MindAR and Three
+      - name: Install and copy MindAR and Three
         run: |
-          curl -L "https://jsdelivr.net" -o three.module.js
-          curl -L "https://jsdelivr.net" -o mindar.js
+          npm install three@0.160.0 mind-ar@1.2.5
+          cp node_modules/three/build/three.module.min.js three.module.js
+          cp node_modules/mind-ar/dist/mindar-image-three.prod.js mindar.js
+          rm -rf node_modules package.json package-lock.json
       - name: Save to repo
         run: |
           git config user.name "GitHub Bot"
