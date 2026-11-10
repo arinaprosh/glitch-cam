@@ -3,151 +3,132 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Purple Glitch Cam</title>
+  <title>Death Proof Glitch Cam</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; color: #fff; }
-
-    #start-screen {
-      position: fixed; inset: 0; z-index: 100;
-      background: #111; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; text-align: center; padding: 20px;
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; color: #fff; }
+    video { display: none; }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 10; }
+    
+    #controls {
+      position: fixed; bottom: 30px; left: 0; right: 0; z-index: 50;
+      display: flex; flex-direction: column; align-items: center; gap: 15px;
     }
-    #start-btn {
-      padding: 16px 32px; font-size: 18px; font-weight: bold;
-      color: #fff; background: #8a2be2; border: none; border-radius: 12px;
-      cursor: pointer; margin-top: 20px;
+    #pick-btn {
+      padding: 12px 22px; background: rgba(0, 0, 0, 0.75); color: #fff;
+      border: 2px solid #8a2be2; border-radius: 24px; font-size: 14px; font-weight: bold;
     }
-    #debug-box {
-      margin-top: 20px; font-size: 12px; color: #ff5577;
-      background: #222; padding: 10px; border-radius: 8px;
-      max-width: 90%; word-break: break-word; display: none;
-    }
-
-    #ar-container {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      z-index: 1; opacity: 0.01; pointer-events: none;
-    }
-
-    #output-canvas {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      object-fit: cover; z-index: 10; background: #000;
-    }
-
     #record-btn {
-      position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
-      width: 76px; height: 76px; border-radius: 50%;
+      width: 74px; height: 74px; border-radius: 50%;
       background: rgba(255, 255, 255, 0.3); border: 4px solid #fff;
-      z-index: 50; cursor: pointer; display: none;
-      align-items: center; justify-content: center;
+      display: flex; align-items: center; justify-content: center;
     }
     #record-btn::after {
-      content: ''; display: block; width: 56px; height: 56px; border-radius: 50%;
-      background: #ff2a55; transition: all 0.2s ease;
+      content: ''; width: 54px; height: 54px; border-radius: 50%;
+      background: #ff2a55; transition: 0.2s;
     }
     #record-btn.recording::after { width: 28px; height: 28px; border-radius: 6px; }
+    
+    #aim {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 24px; height: 24px; border: 2px solid #ff2a55;
+      border-radius: 50%; z-index: 30; pointer-events: none;
+      box-shadow: 0 0 10px rgba(0,0,0,0.8);
+    }
   </style>
 </head>
 <body>
 
-  <div id="start-screen">
-    <h2>Glitch Cam</h2>
-    <p style="color: #aaa; margin-top: 8px; font-size: 14px;">Нажмите кнопку для запуска камеры</p>
-    <button id="start-btn">Включить камеру</button>
-    <div id="debug-box"></div>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="aim"></div>
+
+  <div id="controls">
+    <button id="pick-btn">1. Наведи кружок на красные буквы и нажми</button>
+    <button id="record-btn"></button>
   </div>
 
-  <div id="ar-container"></div>
-  <canvas id="output-canvas"></canvas>
-  <button id="record-btn"></button>
-
-  <script type="module">
-    const startScreen = document.getElementById('start-screen');
-    const startBtn = document.getElementById('start-btn');
-    const debugBox = document.getElementById('debug-box');
-    const container = document.getElementById('ar-container');
-    const canvas = document.getElementById('output-canvas');
-    const ctx = canvas.getContext('2d');
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const pickBtn = document.getElementById('pick-btn');
     const recordBtn = document.getElementById('record-btn');
+    const aim = document.getElementById('aim');
 
-    function showError(msg) {
-      debugBox.style.display = 'block';
-      debugBox.innerHTML += msg + '<br>';
-    }
+    let targetColor = null;
+    let mediaRecorder, chunks = [], isRecording = false;
 
-    // Ловим любые скрытые ошибки страницы и выводим на экран
-    window.addEventListener('error', (e) => showError('Ошибка: ' + e.message));
-    window.addEventListener('unhandledrejection', (e) => showError('Сбой: ' + e.reason));
+    // Включаем заднюю камеру
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      .then(stream => {
+        video.srcObject = stream;
+        video.play();
+        requestAnimationFrame(loop);
+      })
+      .catch(err => alert('Разрешите доступ к камере: ' + err));
 
-    let isGlitching = false;
-    let mediaRecorder;
-    let recordedChunks = [];
-    let isRecording = false;
-    let arStarted = false;
-
-    startBtn.addEventListener('click', async () => {
-      startBtn.disabled = true;
-      startBtn.textContent = 'Загрузка движка...';
-
-      try {
-        // Подгружаем легкий движок MindAR напрямую
-        const { MindARThree } = await import('https://jsdelivr.net');
-
-        startBtn.textContent = 'Запуск камеры...';
-
-        const mindarThree = new MindARThree({
-          container: container,
-          imageTargetSrc: './targets.mind',
-          uiScanning: 'no',
-          uiLoading: 'no'
-        });
-
-        const anchor = mindarThree.addAnchor(0);
-        anchor.onTargetFound = () => { isGlitching = true; };
-        anchor.onTargetLost = () => { isGlitching = false; };
-
-        await mindarThree.start();
-
-        startScreen.style.display = 'none';
-        recordBtn.style.display = 'flex';
-        arStarted = true;
-        renderLoop();
-
-      } catch (err) {
-        startBtn.disabled = false;
-        startBtn.textContent = 'Включить камеру';
-        showError('Не удалось запустить: ' + (err.message || err));
-      }
+    // Запоминаем цвет красных букв из центра прицела
+    pickBtn.addEventListener('click', () => {
+      const w = canvas.width, h = canvas.height;
+      if (!w) return;
+      const p = ctx.getImageData(Math.floor(w / 2), Math.floor(h / 2), 1, 1).data;
+      targetColor = { r: p[0], g: p[1], b: p[2] };
+      pickBtn.textContent = 'Буквы запомнены! (Нажми, если сменилось освещение)';
+      pickBtn.style.borderColor = '#00ff88';
+      aim.style.display = 'none';
     });
 
-    function renderLoop() {
-      if (!arStarted) return;
-      const video = container.querySelector('video');
-      
-      if (video && video.readyState >= 2 && video.videoWidth > 0) {
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+    // Проверяем, есть ли в кадре красные буквы + черная ткань рядом
+    function checkCapInFrame(w, h) {
+      if (!targetColor) return false;
+      const stepX = Math.floor(w / 12);
+      const stepY = Math.floor(h / 12);
+      let redMatches = 0;
+      let darkMatches = 0;
+
+      for (let x = stepX * 2; x < stepX * 10; x += stepX) {
+        for (let y = stepY * 2; y < stepY * 10; y += stepY) {
+          const p = ctx.getImageData(x, y, 1, 1).data;
+          const r = p[0], g = p[1], b = p[2];
+
+          // Проверяем совпадение с красными буквами
+          const diff = Math.abs(r - targetColor.r) + Math.abs(g - targetColor.g) + Math.abs(b - targetColor.b);
+          if (diff < 75) redMatches++;
+
+          // Проверяем наличие черной ткани кепки рядом
+          if (r < 65 && g < 65 && b < 65) darkMatches++;
+        }
+      }
+      // Срабатывает, если видны и буквы, и черная кепка
+      return redMatches >= 2 && darkMatches >= 6;
+    }
+
+    function loop() {
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        if (canvas.width !== video.videoWidth) {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
         }
+        const w = canvas.width, h = canvas.height;
 
-        const w = canvas.width;
-        const h = canvas.height;
+        // Рисуем чистый кадр
+        ctx.filter = 'none';
+        ctx.drawImage(video, 0, 0, w, h);
 
-        ctx.save();
-        if (isGlitching) {
+        if (checkCapInFrame(w, h)) {
+          // Фиолетовый глитч при виде кепки
           ctx.filter = 'hue-rotate(255deg) saturate(350%) contrast(160%)';
-          const shakeX = (Math.random() - 0.5) * 16;
-          const shakeY = (Math.random() - 0.5) * 16;
-          ctx.drawImage(video, shakeX - 10, shakeY - 10, w + 20, h + 20);
+          const sx = (Math.random() - 0.5) * 18;
+          const sy = (Math.random() - 0.5) * 18;
+          ctx.drawImage(video, sx - 10, sy - 10, w + 20, h + 20);
 
           ctx.globalCompositeOperation = 'screen';
           ctx.globalAlpha = 0.6;
           ctx.filter = 'hue-rotate(290deg) saturate(400%)';
-          ctx.drawImage(video, shakeX + 18, shakeY, w, h);
-          
+          ctx.drawImage(video, sx + 18, sy, w, h);
           ctx.globalAlpha = 1.0;
           ctx.globalCompositeOperation = 'source-over';
-          ctx.filter = 'hue-rotate(255deg) saturate(350%) contrast(160%)';
 
           for (let i = 0; i < 10; i++) {
             if (Math.random() > 0.3) {
@@ -157,56 +138,39 @@
               ctx.drawImage(canvas, 0, sliceY, w, sliceH, offsetX, sliceY, w, sliceH);
             }
           }
-
           ctx.fillStyle = `rgba(140, 0, 255, ${Math.random() * 0.25})`;
           ctx.fillRect(0, 0, w, h);
-        } else {
-          ctx.filter = 'none';
-          ctx.drawImage(video, 0, 0, w, h);
         }
-        ctx.restore();
       }
-      requestAnimationFrame(renderLoop);
+      requestAnimationFrame(loop);
     }
 
+    // Запись видео в галерею
     recordBtn.addEventListener('click', () => {
-      if (!isRecording) startRecording();
-      else stopRecording();
+      if (!isRecording) {
+        chunks = [];
+        const stream = canvas.captureStream(30);
+        const mime = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+        mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 5000000 });
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: mime });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `death-proof-${Date.now()}.${mime.includes('mp4') ? 'mp4' : 'webm'}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        recordBtn.classList.add('recording');
+      } else {
+        mediaRecorder.stop();
+        isRecording = false;
+        recordBtn.classList.remove('recording');
+      }
     });
-
-    function startRecording() {
-      recordedChunks = [];
-      const stream = canvas.captureStream(30);
-      let mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
-      mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-        const blob = new Blob(recordedChunks, { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `glitch-cap-${Date.now()}.${ext}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      };
-
-      mediaRecorder.start();
-      isRecording = true;
-      recordBtn.classList.add('recording');
-    }
-
-    function stopRecording() {
-      mediaRecorder.stop();
-      isRecording = false;
-      recordBtn.classList.remove('recording');
-    }
   </script>
 </body>
 </html>
