@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Purple Glitch Cam</title>
+  
+  <!-- Рабочие в РФ зеркала библиотек -->
+  <script src="https://cloudflare.com"></script>
+  <script src="https://esm.sh"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; color: #fff; }
@@ -15,10 +20,13 @@
     }
     #start-btn {
       padding: 16px 32px; font-size: 18px; font-weight: bold;
-      color: #fff; background: #8a2be2; border: none; border-radius: 12px;
-      cursor: pointer; margin-top: 20px;
+      color: #fff; background: #555; border: none; border-radius: 12px;
+      cursor: not-allowed; margin-top: 20px; transition: background 0.3s;
     }
-    #status-text { margin-top: 15px; font-size: 13px; color: #ff5577; }
+    #start-btn.ready {
+      background: #8a2be2; cursor: pointer;
+    }
+    #status-text { margin-top: 15px; font-size: 14px; color: #ff5577; max-width: 300px; }
 
     .a-enter-vr, .a-loader-title { display: none !important; }
     a-scene { position: fixed; inset: 0; z-index: 1; opacity: 0.01; pointer-events: none; }
@@ -46,17 +54,13 @@
 
   <div id="start-screen">
     <h2>Glitch Cam</h2>
-    <p style="color: #aaa; margin-top: 8px; font-size: 14px;">Нажмите кнопку для запуска</p>
-    <button id="start-btn">Включить камеру</button>
+    <p style="color: #aaa; margin-top: 8px; font-size: 14px;">Подготовка распознавания кепки</p>
+    <button id="start-btn" disabled>Загрузка движка...</button>
     <div id="status-text"></div>
   </div>
 
   <canvas id="output-canvas"></canvas>
   <button id="record-btn"></button>
-
-  <!-- Грузим движки с единого надежного зеркала -->
-  <script src="https://jsdelivr.net"></script>
-  <script src="https://jsdelivr.net"></script>
 
   <a-scene id="ar-scene" mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiScanning: no;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
@@ -79,26 +83,40 @@
     let isRecording = false;
     let arStarted = false;
 
-    startBtn.addEventListener('click', () => {
-      if (!sceneEl.systems || !sceneEl.systems['mindar-image-system']) {
-        statusText.textContent = 'Ошибка: библиотеки AR не загрузились. Проверьте интернет или VPN.';
-        return;
+    let checkAttempts = 0;
+    const readyCheck = setInterval(() => {
+      checkAttempts++;
+      if (sceneEl.hasLoaded && sceneEl.systems && sceneEl.systems['mindar-image-system']) {
+        clearInterval(readyCheck);
+        startBtn.disabled = false;
+        startBtn.classList.add('ready');
+        startBtn.textContent = 'Включить камеру';
+      } else if (checkAttempts > 20) {
+        clearInterval(readyCheck);
+        statusText.textContent = 'Ошибка загрузки библиотек. Попробуйте включить VPN при открытии ссылки.';
       }
+    }, 500);
 
+    startBtn.addEventListener('click', async () => {
       startBtn.textContent = 'Запуск камеры...';
+      statusText.textContent = '';
+
       try {
-        sceneEl.systems['mindar-image-system'].start();
-      } catch (e) {
-        statusText.textContent = 'Ошибка запуска: ' + e.message;
-        return;
+        await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const arSystem = sceneEl.systems['mindar-image-system'];
+        arSystem.start();
+
+        setTimeout(() => {
+          startScreen.style.display = 'none';
+          recordBtn.style.display = 'flex';
+          arStarted = true;
+          renderLoop();
+        }, 1200);
+
+      } catch (err) {
+        startBtn.textContent = 'Включить камеру';
+        statusText.textContent = 'Ошибка камеры или файла targets.mind: ' + err.message;
       }
-      
-      setTimeout(() => {
-        startScreen.style.display = 'none';
-        recordBtn.style.display = 'flex';
-        arStarted = true;
-        renderLoop();
-      }, 1200);
     });
 
     target.addEventListener("targetFound", () => { isGlitching = true; });
