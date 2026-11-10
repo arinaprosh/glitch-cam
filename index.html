@@ -4,11 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Purple Glitch Cam</title>
-  
-  <!-- Рабочие в РФ зеркала библиотек -->
-  <script src="https://cloudflare.com"></script>
-  <script src="https://esm.sh"></script>
-
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body, html { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: sans-serif; color: #fff; }
@@ -20,16 +15,19 @@
     }
     #start-btn {
       padding: 16px 32px; font-size: 18px; font-weight: bold;
-      color: #fff; background: #555; border: none; border-radius: 12px;
-      cursor: not-allowed; margin-top: 20px; transition: background 0.3s;
+      color: #fff; background: #8a2be2; border: none; border-radius: 12px;
+      cursor: pointer; margin-top: 20px;
     }
-    #start-btn.ready {
-      background: #8a2be2; cursor: pointer;
+    #debug-box {
+      margin-top: 20px; font-size: 12px; color: #ff5577;
+      background: #222; padding: 10px; border-radius: 8px;
+      max-width: 90%; word-break: break-word; display: none;
     }
-    #status-text { margin-top: 15px; font-size: 14px; color: #ff5577; max-width: 300px; }
 
-    .a-enter-vr, .a-loader-title { display: none !important; }
-    a-scene { position: fixed; inset: 0; z-index: 1; opacity: 0.01; pointer-events: none; }
+    #ar-container {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      z-index: 1; opacity: 0.01; pointer-events: none;
+    }
 
     #output-canvas {
       position: fixed; inset: 0; width: 100%; height: 100%;
@@ -54,28 +52,32 @@
 
   <div id="start-screen">
     <h2>Glitch Cam</h2>
-    <p style="color: #aaa; margin-top: 8px; font-size: 14px;">Подготовка распознавания кепки</p>
-    <button id="start-btn" disabled>Загрузка движка...</button>
-    <div id="status-text"></div>
+    <p style="color: #aaa; margin-top: 8px; font-size: 14px;">Нажмите кнопку для запуска камеры</p>
+    <button id="start-btn">Включить камеру</button>
+    <div id="debug-box"></div>
   </div>
 
+  <div id="ar-container"></div>
   <canvas id="output-canvas"></canvas>
   <button id="record-btn"></button>
 
-  <a-scene id="ar-scene" mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiScanning: no;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
-    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-    
-  </a-scene>
-
-  <script>
+  <script type="module">
     const startScreen = document.getElementById('start-screen');
     const startBtn = document.getElementById('start-btn');
-    const statusText = document.getElementById('status-text');
-    const sceneEl = document.getElementById('ar-scene');
+    const debugBox = document.getElementById('debug-box');
+    const container = document.getElementById('ar-container');
     const canvas = document.getElementById('output-canvas');
     const ctx = canvas.getContext('2d');
     const recordBtn = document.getElementById('record-btn');
-    const target = document.querySelector('#cap-target');
+
+    function showError(msg) {
+      debugBox.style.display = 'block';
+      debugBox.innerHTML += msg + '<br>';
+    }
+
+    // Ловим любые скрытые ошибки страницы и выводим на экран
+    window.addEventListener('error', (e) => showError('Ошибка: ' + e.message));
+    window.addEventListener('unhandledrejection', (e) => showError('Сбой: ' + e.reason));
 
     let isGlitching = false;
     let mediaRecorder;
@@ -83,48 +85,44 @@
     let isRecording = false;
     let arStarted = false;
 
-    let checkAttempts = 0;
-    const readyCheck = setInterval(() => {
-      checkAttempts++;
-      if (sceneEl.hasLoaded && sceneEl.systems && sceneEl.systems['mindar-image-system']) {
-        clearInterval(readyCheck);
-        startBtn.disabled = false;
-        startBtn.classList.add('ready');
-        startBtn.textContent = 'Включить камеру';
-      } else if (checkAttempts > 20) {
-        clearInterval(readyCheck);
-        statusText.textContent = 'Ошибка загрузки библиотек. Попробуйте включить VPN при открытии ссылки.';
-      }
-    }, 500);
-
     startBtn.addEventListener('click', async () => {
-      startBtn.textContent = 'Запуск камеры...';
-      statusText.textContent = '';
+      startBtn.disabled = true;
+      startBtn.textContent = 'Загрузка движка...';
 
       try {
-        await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        const arSystem = sceneEl.systems['mindar-image-system'];
-        arSystem.start();
+        // Подгружаем легкий движок MindAR напрямую
+        const { MindARThree } = await import('https://jsdelivr.net');
 
-        setTimeout(() => {
-          startScreen.style.display = 'none';
-          recordBtn.style.display = 'flex';
-          arStarted = true;
-          renderLoop();
-        }, 1200);
+        startBtn.textContent = 'Запуск камеры...';
+
+        const mindarThree = new MindARThree({
+          container: container,
+          imageTargetSrc: './targets.mind',
+          uiScanning: 'no',
+          uiLoading: 'no'
+        });
+
+        const anchor = mindarThree.addAnchor(0);
+        anchor.onTargetFound = () => { isGlitching = true; };
+        anchor.onTargetLost = () => { isGlitching = false; };
+
+        await mindarThree.start();
+
+        startScreen.style.display = 'none';
+        recordBtn.style.display = 'flex';
+        arStarted = true;
+        renderLoop();
 
       } catch (err) {
+        startBtn.disabled = false;
         startBtn.textContent = 'Включить камеру';
-        statusText.textContent = 'Ошибка камеры или файла targets.mind: ' + err.message;
+        showError('Не удалось запустить: ' + (err.message || err));
       }
     });
 
-    target.addEventListener("targetFound", () => { isGlitching = true; });
-    target.addEventListener("targetLost", () => { isGlitching = false; });
-
     function renderLoop() {
       if (!arStarted) return;
-      const video = document.querySelector('video');
+      const video = container.querySelector('video');
       
       if (video && video.readyState >= 2 && video.videoWidth > 0) {
         if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
