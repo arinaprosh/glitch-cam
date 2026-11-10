@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name=»viewport» content=»width=device-width, initial-scale=1.0, user-scalable=no»>
+  <title>Purple Glitch Cam</title>
+  <script src=»https://aframe.io»></script>
+  <script src=»https://jsdelivr.net»></script>
+  <style>
+    Body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+    Video { opacity: 0 !important; pointer-events: none; }
+
+    #output-canvas {
+      Position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      Object-fit: cover; z-index: 10;
+    }
+
+    #record-btn {
+      Position: fixed; bottom: 35px; left: 50%; transform: translateX(-50%);
+      Width: 74px; height: 74px; border-radius: 50%;
+      Background: rgba(255, 255, 255, 0.25); border: 4px solid #fff;
+      z-index: 20; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #record-btn::after {
+      Content: ''; width: 56px; height: 56px; border-radius: 50%;
+      Background: #ff2a55; transition: all 0.2s ease;
+    }
+    #record-btn.recording::after {
+      Width: 28px; height: 28px; border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id=»output-canvas»></canvas>
+  <button id=»record-btn»></button>
+
+  <a-scene mindar-image=»imageTargetSrc: ./targets.mind; uiScanning: no;» vr-mode-ui=»enabled: false» device-orientation-permission-ui=»enabled: false»>
+    <a-camera position=»0 0 0» look-controls=»enabled: false»></a-camera>
+    
+  </a-scene>
+
+  <script>
+    Const canvas = document.getElementById('output-canvas');
+    Const ctx = canvas.getContext('2d');
+    Const recordBtn = document.getElementById('record-btn');
+    Const target = document.querySelector('#cap-target');
+
+    Let isGlitching = false;
+    Let mediaRecorder;
+    Let recordedChunks = [];
+    Let isRecording = false;
+
+    Target.addEventListener(«targetFound», () => { isGlitching = true; });
+    Target.addEventListener(«targetLost», () => { isGlitching = false; });
+
+    Function renderLoop() {
+      Const video = document.querySelector('video');
+      If (video && video.readyState >= 2) {
+        If (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+          Canvas.width = video.videoWidth;
+          Canvas.height = video.videoHeight;
+        }
+
+        Const w = canvas.width;
+        Const h = canvas.height;
+
+        Ctx.save();
+        If (isGlitching) {
+          // 1. Базовый фиолетовый перегруз + тряска
+          Ctx.filter = 'hue-rotate(255deg) saturate(350%) contrast(160%)';
+          Const shakeX = (Math.random() – 0.5) * 16;
+          Const shakeY = (Math.random() – 0.5) * 16;
+          Ctx.drawImage(video, shakeX – 10, shakeY – 10, w + 20, h + 20);
+
+          // 2. Сдвиг цветовых каналов (RGB-расслоение)
+          Ctx.globalCompositeOperation = 'screen';
+          Ctx.globalAlpha = 0.6;
+          Ctx.filter = 'hue-rotate(290deg) saturate(400%)';
+          Ctx.drawImage(video, shakeX + 18, shakeY, w, h);
+          
+          Ctx.globalAlpha = 1.0;
+          Ctx.globalCompositeOperation = 'source-over';
+          Ctx.filter = 'hue-rotate(255deg) saturate(350%) contrast(160%)';
+
+          // 3. Рваные VHS-полосы (сдвиг случайных горизонтальных кусков)
+          Const slices = 10; // Количество полос искажения
+          For (let i = 0; i < slices; i++) {
+            If (Math.random() > 0.3) { // Полосы мелькают хаотично
+              Const sliceY = Math.random() * h;
+              Const sliceH = Math.random() * (h * 0.08) + 5;
+              Const offsetX = (Math.random() – 0.5) * 80; // Сила сдвига вбок
+              Ctx.drawImage(canvas, 0, sliceY, w, sliceH, offsetX, sliceY, w, sliceH);
+            }
+          }
+
+          // 4. Фиолетовая вспышка/засвет поверх кадра
+          Ctx.fillStyle = `rgba(140, 0, 255, ${Math.random() * 0.25})`;
+          Ctx.fillRect(0, 0, w, h);
+
+        } else {
+          // Обычная чистая камера
+          Ctx.filter = 'none';
+          Ctx.drawImage(video, 0, 0, w, h);
+        }
+        Ctx.restore();
+      }
+      requestAnimationFrame(renderLoop);
+    }
+    renderLoop();
+
+    // Логика записи видео
+    recordBtn.addEventListener('click', () => {
+      if (!isRecording) {
+        startRecording();
+      } else {
+        stopRecording();
+      }
+    });
+
+    Function startRecording() {
+      recordedChunks = [];
+      const stream = canvas.captureStream(30);
+      
+      // Android Chrome отлично пишет в mp4 или webm
+      Let mimeType = 'video/webm;codecs=vp9';
+      If (MediaRecorder.isTypeSupported('video/mp4')) {
+        mimeType = 'video/mp4';
+      } else if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/webm';
+      }
+
+      mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
+
+      mediaRecorder.ondataavailable = € => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        const blob = new Blob(recordedChunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `glitch-cap-${Date.now()}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      recordBtn.classList.add('recording');
+    }
+
+    Function stopRecording() {
+      mediaRecorder.stop();
+      isRecording = false;
+      recordBtn.classList.remove('recording');
+    }
+  </script>
+</body>
+</html>
+
+
